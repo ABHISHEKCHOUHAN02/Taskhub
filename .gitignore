@@ -1,0 +1,46 @@
+# Shared dependencies
+node_modules/
+.venv/
+venv/
+env/
+.pytest_cache/
+__pycache__/
+*.pyc
+
+# Build and tool output
+.next/
+out/
+dist/
+build/
+coverage/
+.turbo/
+.vercel/
+*.tsbuildinfo
+
+# Local caches and temp files
+.cache/
+.codex-tmp/
+tmp/
+temp/
+
+# Secrets and runtime config
+.env
+.env.local
+.env.development.local
+.env.production.local
+.env.test.local
+backend/.env
+backend/.env.local
+frontend/.env
+frontend/.env.local
+
+# Logs and OS noise
+*.log
+.DS_Store
+Thumbs.db
+
+# Generated application artifacts
+uploads/
+generated_outputs/
+generated_artifacts/
+storage-cache/
