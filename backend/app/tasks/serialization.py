@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from ..models.audit_log import AuditLog
 from ..models.generated_image import GeneratedImage
 from ..models.task import Task
 from ..models.user import User
@@ -76,3 +77,31 @@ def serialize_task(task: Task, *, include_images: bool = False) -> dict[str, Any
 
 def snapshot_task(task: Task) -> dict[str, Any]:
     return serialize_task(task, include_images=False)
+
+
+def serialize_audit_log(log: AuditLog) -> dict[str, Any]:
+    return {
+        "id": str(log.id),
+        "actor_user_id": str(log.actor_user_id) if log.actor_user_id else None,
+        "entity_type": log.entity_type,
+        "entity_id": str(log.entity_id),
+        "action": log.action,
+        "before_data": log.before_data or {},
+        "after_data": log.after_data or {},
+        "metadata": log.metadata_json or {},
+        "created_at": isoformat(log.created_at),
+    }
+
+
+def serialize_admin_user(user: User) -> dict[str, Any]:
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "full_name": user.full_name,
+        "avatar_url": user.avatar_url,
+        "role": enum_value(user.role),
+        "is_active": user.is_active,
+        "last_login_at": isoformat(user.last_login_at),
+        "created_at": isoformat(user.created_at),
+        "updated_at": isoformat(user.updated_at),
+    }

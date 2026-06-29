@@ -2,4 +2,5 @@ from app import create_app
 from app.celery_app import celery
 
 app = create_app()
-# celery is already configured by init_celery() called inside create_app()
+
+__all__ = ["app", "celery"]

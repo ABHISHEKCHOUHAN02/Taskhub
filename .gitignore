@@ -1,10 +1,16 @@
 # Shared dependencies
 node_modules/
 .venv/
+.venv-codex/
 venv/
 env/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.nox/
+.tox/
 __pycache__/
+*.pyo
 *.pyc
 
 # Build and tool output
@@ -15,13 +21,22 @@ build/
 coverage/
 .turbo/
 .vercel/
+storybook-static/
 *.tsbuildinfo
+.parcel-cache/
+.svelte-kit/
 
 # Local caches and temp files
 .cache/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-cache/
 .codex-tmp/
+.pip-cache/
 tmp/
 temp/
+*.tmp
 
 # Secrets and runtime config
 .env
@@ -33,14 +48,35 @@ backend/.env
 backend/.env.local
 frontend/.env
 frontend/.env.local
+backend/.flaskenv
+frontend/.flaskenv
+*.envrc
+
+# Database and worker state
+*.sqlite
+*.sqlite3
+*.db
+*.pid
+*.seed
 
 # Logs and OS noise
 *.log
+*.out
+*.err
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/
+.history/
 
-# Generated application artifacts
+# Platform and generated uploads
+backend/var/
+backend/instance/
 uploads/
+storage-cache/
 generated_outputs/
 generated_artifacts/
-storage-cache/
+
+# Project-local generated or scratch folders
+.agents/
+.codex/

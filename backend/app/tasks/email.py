@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from html import escape
 from typing import Any
-from urllib import request as urlrequest
-from urllib.error import URLError
 
 from flask import current_app
 
+from ..auth.config import get_admin_emails
+from ..queue import queue_resend_email
 from .serialization import enum_value
 
 
@@ -42,21 +42,28 @@ def _post_resend(payload: dict[str, Any]) -> None:
         current_app.logger.info("Email trigger skipped because RESEND_API_KEY is not configured: %s", payload["subject"])
         return
 
-    request = urlrequest.Request(
-        "https://api.resend.com/emails",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    from_addr = payload["from"]
+    to_addrs = payload["to"]
+    subject = payload["subject"]
+    html_body = payload["html"]
+
+    msg = MIMEMultipart("alternative")
+    msg["From"] = from_addr
+    msg["To"] = ", ".join(to_addrs) if isinstance(to_addrs, list) else to_addrs
+    msg["Subject"] = subject
+    msg.attach(MIMEText(html_body, "html"))
+
     try:
-        with urlrequest.urlopen(request, timeout=10) as response:
-            if response.status >= 400:
-                current_app.logger.warning("Resend returned HTTP %s for %s", response.status, payload["subject"])
-    except URLError as exc:
-        current_app.logger.warning("Email trigger failed for %s: %s", payload["subject"], exc)
+        with smtplib.SMTP_SSL("smtp.resend.com", 465, timeout=10) as server:
+            server.login("resend", api_key)
+            server.sendmail(from_addr, to_addrs, msg.as_string())
+        current_app.logger.info("Email sent via SMTP: %s", subject)
+    except Exception as exc:
+        current_app.logger.warning("Email trigger failed for %s: %s", subject, exc)
 
 
 def trigger_task_assigned_email(context: dict[str, Any]) -> None:
@@ -71,7 +78,7 @@ def trigger_task_assigned_email(context: dict[str, Any]) -> None:
         f"<p>You have been assigned <strong>{task_title}</strong> in TaskHub.</p>"
         f"<p><a href=\"{task_url}\">Open the task</a></p>"
     )
-    _post_resend(
+    queue_resend_email(
         {
             "from": current_app.config["EMAIL_FROM"],
             "to": [context["assignee_email"]],
@@ -82,7 +89,12 @@ def trigger_task_assigned_email(context: dict[str, Any]) -> None:
 
 
 def trigger_task_submitted_email(context: dict[str, Any]) -> None:
-    if not context.get("creator_email"):
+    recipients = []
+    if context.get("creator_email"):
+        recipients.append(context["creator_email"])
+    recipients.extend(get_admin_emails())
+    recipients = list(dict.fromkeys(email for email in recipients if email))
+    if not recipients:
         return
     task_url = _task_url(context["task_id"])
     subject = f"Task submitted: {context['task_title']}"
@@ -92,10 +104,10 @@ def trigger_task_submitted_email(context: dict[str, Any]) -> None:
         f"<p>{assignee_name} submitted <strong>{task_title}</strong>.</p>"
         f"<p><a href=\"{task_url}\">Review the submission</a></p>"
     )
-    _post_resend(
+    queue_resend_email(
         {
             "from": current_app.config["EMAIL_FROM"],
-            "to": [context["creator_email"]],
+            "to": recipients,
             "subject": subject,
             "html": html,
         }
@@ -117,7 +129,7 @@ def trigger_task_review_email(context: dict[str, Any]) -> None:
         f"<p>{review_notes}</p>"
         f"<p><a href=\"{task_url}\">Open the task</a></p>"
     )
-    _post_resend(
+    queue_resend_email(
         {
             "from": current_app.config["EMAIL_FROM"],
             "to": [context["assignee_email"]],

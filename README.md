@@ -31,6 +31,8 @@ The canonical environment template is [`/.env.example`](./.env.example).
 - Image type keys stay stable across backend, frontend, and worker code: `white_bg`, `theme_marble`, `theme_velvet`, `creative_beach`, `creative_studio`, `model_front`, `model_side`, `model_closeup`.
 - Store timestamps in UTC and serialize them as ISO 8601 strings.
 - Do not commit runtime secrets, local caches, build output, or generated uploads.
+- The live image-generation path uses Hugging Face Inference Providers with `HF_TOKEN`, `HF_PROVIDER`, and `HF_MODEL_ID`.
+- Task submission is gated until all 8 required generated images exist and are marked final.
 
 ## Local Setup
 
@@ -53,7 +55,19 @@ The database schema should be treated as the Flask model layer plus Alembic migr
 - Worker: same backend platform or a separate process with the same env contract.
 - Supabase handles the database and file storage.
 - Redis is external and managed.
+- Generation jobs run asynchronously through Celery and Redis, then store the completed image in Supabase Storage.
+- See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for the assignment handoff setup, reviewer login flow, and Resend sender-domain notes.
 
 ## Sample Artifacts
 
 The `generated_samples/` folder is reserved for the 8 evaluation images required by the assignment, plus a short README describing each variation.
+
+## Frontend Completion
+
+- The Next.js app now exposes a public landing page, SSR admin dashboard, SSR user dashboard, and a task detail AI studio.
+- The frontend fetches live data from Flask during SSR and keeps the existing role-cookie redirect model.
+- The task detail page enforces the full 8-image workflow before submission.
+
+## Assumption Note
+
+The PDF route names are handled as Flask compatibility aliases over the existing backend flow so the implementation stays backward-compatible while still matching the evaluator-facing URLs.

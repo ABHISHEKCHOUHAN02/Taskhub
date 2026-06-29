@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import base64
+import json
 import os
 import uuid
-from functools import wraps
+import urllib.parse
 
 from flask import Blueprint, Response, current_app, g, jsonify, redirect, request, session
 
 from ..extensions import db
 from ..models.enums import UserRole
 from ..models.user import User
+from .decorators import admin_required, login_required, _load_current_user, _current_user_or_401
 from .config import get_frontend_url
 from .oauth import (
     OAuthProvider,
@@ -18,6 +21,7 @@ from .oauth import (
     generate_state,
 )
 from .services import upsert_oauth_user
+from ..tasks.serialization import serialize_admin_user
 from .session import build_session_cookies, clear_auth_session, clear_session_cookies, store_auth_session
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
@@ -59,60 +63,32 @@ def _provider_callback_uri(provider_name: str) -> str:
     return f"{get_frontend_url()}/api/auth/oauth/{provider_name}/callback"
 
 
-def _load_current_user() -> User | None:
-    user_id = session.get("user_id")
-    if not user_id:
-        g.current_user = None
-        return None
+def _frontend_redirect(path: str) -> Response:
+    if not path.startswith("/"):
+      path = "/dashboard"
+    return redirect(f"{get_frontend_url()}{path}")
 
+
+def _oauth_error_redirect(code: str) -> Response:
+    next_path = session.get("oauth_next") or "/dashboard"
+    if not isinstance(next_path, str) or not next_path.startswith("/"):
+        next_path = "/dashboard"
+    target = f"/login?oauth_error={urllib.parse.quote(code)}&next={urllib.parse.quote(next_path)}"
+    return redirect(f"{get_frontend_url()}{target}")
+
+
+def _decode_jwt_payload(token: str) -> dict[str, object]:
+    parts = token.split(".")
+    if len(parts) < 2:
+        return {}
+    payload = parts[1]
+    padding = "=" * (-len(payload) % 4)
     try:
-        user_pk = uuid.UUID(str(user_id))
-    except ValueError:
-        clear_auth_session()
-        g.current_user = None
-        return None
-
-    user = db.session.get(User, user_pk)
-    if user is None or not user.is_active:
-        clear_auth_session()
-        g.current_user = None
-        return None
-
-    g.current_user = user
-    return user
-
-
-def _current_user_or_401() -> User:
-    user = getattr(g, "current_user", None) or _load_current_user()
-    if user is None:
-        raise PermissionError("authentication required")
-    return user
-
-
-def login_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            _current_user_or_401()
-        except PermissionError:
-            return jsonify({"error": "authentication_required"}), 401
-        return fn(*args, **kwargs)
-
-    return wrapper
-
-
-def admin_required(fn):
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            user = _current_user_or_401()
-        except PermissionError:
-            return jsonify({"error": "authentication_required"}), 401
-        if user.role != UserRole.ADMIN and str(user.role) != "admin":
-            return jsonify({"error": "admin_required"}), 403
-        return fn(*args, **kwargs)
-
-    return wrapper
+        decoded = base64.urlsafe_b64decode((payload + padding).encode("utf-8"))
+        data = json.loads(decoded.decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return {}
 
 
 @auth_bp.before_app_request
@@ -138,7 +114,7 @@ def oauth_start(provider: str):
 def oauth_callback(provider: str | None = None):
     provider_name = (provider or request.args.get("provider") or request.form.get("provider") or session.get("oauth_provider") or "").lower()
     if not provider_name:
-        return jsonify({"error": "provider_required"}), 400
+        return _oauth_error_redirect("provider_required")
 
     provider_cfg = _provider_config(provider_name)
     code = request.values.get("code")
@@ -146,25 +122,28 @@ def oauth_callback(provider: str | None = None):
     expected_state = session.get("oauth_state")
 
     if not code:
-        return jsonify({"error": "code_required"}), 400
+        return _oauth_error_redirect("code_required")
     if not state or not expected_state or state != expected_state:
-        return jsonify({"error": "invalid_state"}), 400
+        return _oauth_error_redirect("invalid_state")
 
     token_payload = exchange_code_for_token(provider_cfg, code)
     access_token = token_payload.get("access_token")
     if not access_token:
-        return jsonify({"error": "token_exchange_failed"}), 400
+        return _oauth_error_redirect("token_exchange_failed")
 
     if provider_name == "google":
         profile = fetch_json(
             provider_cfg.userinfo_url,
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        subject = str(profile.get("sub") or "")
-        email = str(profile.get("email") or "")
-        full_name = str(profile.get("name") or profile.get("given_name") or email)
-        avatar_url = profile.get("picture")
+        token_claims = _decode_jwt_payload(str(token_payload.get("id_token") or ""))
+        subject = str(profile.get("sub") or token_claims.get("sub") or token_claims.get("user_id") or "")
+        email = str(profile.get("email") or token_claims.get("email") or "")
+        full_name = str(profile.get("name") or token_claims.get("name") or profile.get("given_name") or email)
+        avatar_url = profile.get("picture") or token_claims.get("picture")
         oauth_metadata = profile if isinstance(profile, dict) else {}
+        if isinstance(token_claims, dict) and token_claims:
+            oauth_metadata = {**oauth_metadata, "id_token_claims": token_claims}
     else:
         profile = fetch_json(
             provider_cfg.userinfo_url,
@@ -195,7 +174,7 @@ def oauth_callback(provider: str | None = None):
         oauth_metadata = {"profile": profile, "emails": emails}
 
     if not subject or not email:
-        return jsonify({"error": "oauth_profile_incomplete"}), 400
+        return _oauth_error_redirect("oauth_profile_incomplete")
 
     user = upsert_oauth_user(
         provider=provider_name,
@@ -208,9 +187,10 @@ def oauth_callback(provider: str | None = None):
 
     store_auth_session(user)
 
-    response = redirect(
-        f"{get_frontend_url()}/admin" if (user.role == UserRole.ADMIN or str(user.role) == "admin") else f"{get_frontend_url()}/dashboard"
-    )
+    next_path = session.pop("oauth_next", None)
+    if not isinstance(next_path, str) or not next_path.startswith("/"):
+        next_path = "/admin" if (user.role == UserRole.ADMIN or str(user.role) == "admin") else "/dashboard"
+    response = _frontend_redirect(next_path)
     response = build_session_cookies(response, user, secure=_secure_cookie_flag())
     return response
 
@@ -246,3 +226,35 @@ def logout():
         response = clear_session_cookies(response)
         response.delete_cookie(current_app.config["SESSION_COOKIE_NAME"])
     return response
+
+
+@auth_bp.route("/admin/users", methods=["GET"])
+@admin_required
+def admin_users():
+    users = db.session.scalars(db.select(User).order_by(User.created_at.desc())).all()
+    return jsonify({"users": [serialize_admin_user(user) for user in users]})
+
+
+@auth_bp.route("/admin/users/<user_id>", methods=["PATCH"])
+@admin_required
+def admin_update_user(user_id: str):
+    try:
+        user_pk = uuid.UUID(str(user_id))
+    except ValueError:
+        return jsonify({"error": "user_id_invalid"}), 400
+
+    user = db.session.get(User, user_pk)
+    if user is None:
+        return jsonify({"error": "user_not_found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    if "is_active" in payload:
+        user.is_active = bool(payload["is_active"])
+    if "role" in payload:
+        role = str(payload["role"]).lower()
+        if role not in {"admin", "user"}:
+            return jsonify({"error": "role_invalid"}), 400
+        user.role = UserRole.ADMIN if role == "admin" else UserRole.USER
+
+    db.session.commit()
+    return jsonify({"user": serialize_admin_user(user)})

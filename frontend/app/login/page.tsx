@@ -1,6 +1,31 @@
 import Link from "next/link";
 
-export default function LoginPage() {
+type SearchParams = Promise<{
+  oauth_error?: string;
+  next?: string;
+}>;
+
+function errorLabel(code?: string) {
+  switch (code) {
+    case "provider_required":
+      return "OAuth provider was not selected.";
+    case "code_required":
+      return "The OAuth callback did not include an authorization code.";
+    case "invalid_state":
+      return "OAuth state validation failed. Please sign in again.";
+    case "token_exchange_failed":
+      return "The OAuth provider did not return an access token.";
+    case "oauth_profile_incomplete":
+      return "The OAuth profile response was incomplete. Try signing in again.";
+    default:
+      return code ? `Login failed: ${code}` : null;
+  }
+}
+
+export default async function LoginPage(props: { searchParams?: SearchParams }) {
+  const searchParams = props.searchParams ? await props.searchParams : undefined;
+  const error = errorLabel(searchParams?.oauth_error);
+
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-50">
       <section className="mx-auto flex min-h-screen w-full max-w-4xl flex-col justify-center px-6 py-12 sm:px-10">
@@ -9,8 +34,13 @@ export default function LoginPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-zinc-400">TaskHub</p>
             <h1 className="text-3xl font-semibold text-white">Sign in</h1>
             <p className="max-w-md text-sm leading-6 text-zinc-400">
-              Use Google or GitHub to access your assigned tasks, admin tools, and AI studio.
+              Use Google or GitHub to access your assigned tasks, admin tools, and AI studio. Email delivery is used for task notifications only.
             </p>
+            {error ? (
+              <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 p-4 text-sm leading-6 text-rose-100">
+                {error}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-3 pt-2">
               <a
                 className="rounded-full bg-white px-5 py-3 text-sm font-medium text-zinc-950 transition hover:bg-zinc-200"
@@ -30,7 +60,7 @@ export default function LoginPage() {
           <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
             <p className="text-sm font-medium text-white">Need an account?</p>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              OAuth also creates your user record the first time you sign in, so there is no separate password registration flow.
+              OAuth creates your user record the first time you sign in. Admin access is assigned by role after account creation.
             </p>
             <div className="mt-6 flex items-center gap-3">
               <Link

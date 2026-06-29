@@ -24,6 +24,7 @@ Use `backend/.env.example` as the source of truth for backend-only runtime value
 - Store timestamps in UTC and serialize them as ISO 8601 strings.
 - Before database queries, set `app.user_id` and `app.user_role` on the PostgreSQL session so RLS can evaluate the active actor.
 - Store Supabase Storage object paths under `tasks/<task_id>/...` and keep those references in the database rows.
+- The image pipeline uses Hugging Face Inference Providers with `HF_TOKEN`, `HF_PROVIDER`, and `HF_MODEL_ID`.
 - Auth routes:
   - `GET /api/auth/oauth/google/start`
   - `GET /api/auth/oauth/github/start`
@@ -44,7 +45,30 @@ Use `backend/.env.example` as the source of truth for backend-only runtime value
   - `POST /api/tasks/<task_id>/start`
   - `POST /api/tasks/<task_id>/submit`
   - `GET /api/tasks/<task_id>/generations`
+- Generation routes:
+  - `POST /api/tasks/<task_id>/generations`
+  - `POST /api/tasks/<task_id>/generate`
+  - `GET /api/generation-jobs/<job_id>`
+  - `GET /api/jobs/<job_id>/status`
+  - `POST /api/tasks/<task_id>/generations/<generation_id>/mark-final`
+  - `DELETE /api/tasks/<task_id>/generations/<generation_id>`
+  - `DELETE /api/generations/<generation_id>`
 - Task state changes create `audit_logs` records. Assignment, submission, acceptance, and revision-request actions trigger Resend emails when `RESEND_API_KEY` is configured.
+- Task submission is blocked until all 8 required generation variants exist and each one is marked final.
+
+## Frontend Contract
+
+The Next.js app consumes the backend through SSR fetches and expects these convenience endpoints to stay stable:
+
+- `/api/my-tasks`
+- `/api/admin/tasks`
+- `/api/admin/users`
+- `/api/tasks/<task_id>`
+- `/api/tasks/<task_id>/generations`
+- `/api/tasks/<task_id>/audit-logs`
+- `/api/jobs/<job_id>/status`
+
+These routes are compatibility aliases around the existing Flask implementation so the frontend can stay aligned with the PDF route naming without forcing a rewrite.
 
 ## Migration Commands
 
@@ -67,3 +91,4 @@ flask --app wsgi:app db upgrade
 
 - The repository now uses Flask-Migrate as the single migration path.
 - The old SQL-only migration files were removed to avoid drift between two schemas.
+- Run the API with `flask --app wsgi:app run` and the worker with `celery -A worker:celery worker -l info` from `backend/`.

@@ -9,7 +9,7 @@ export default function RegisterPage() {
             <p className="text-xs uppercase tracking-[0.3em] text-zinc-400">TaskHub</p>
             <h1 className="text-3xl font-semibold text-white">Create your account</h1>
             <p className="max-w-md text-sm leading-6 text-zinc-400">
-              New users join by signing in with Google or GitHub. The first OAuth sign-in creates the account automatically.
+              New users join with Google or GitHub. The first OAuth sign-in creates the account automatically.
             </p>
             <div className="flex flex-wrap gap-3 pt-2">
               <a
@@ -30,7 +30,7 @@ export default function RegisterPage() {
           <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
             <p className="text-sm font-medium text-white">Already have access?</p>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Use the same OAuth providers to sign in. Admin access is role-based and assigned on the backend.
+              Use the same OAuth provider to sign in. Admin access is role-based and assigned on the backend.
             </p>
             <div className="mt-6 flex items-center gap-3">
               <Link
