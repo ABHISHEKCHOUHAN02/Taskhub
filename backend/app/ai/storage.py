@@ -7,9 +7,18 @@ from urllib.parse import quote
 
 import requests
 from PIL import Image
-from rembg import remove
 
 from flask import current_app
+
+_rembg_session = None
+
+
+def _get_rembg_session():
+    global _rembg_session
+    if _rembg_session is None:
+        from rembg import new_session
+        _rembg_session = new_session("u2net")
+    return _rembg_session
 
 
 class StorageUploadError(Exception):
@@ -28,7 +37,9 @@ def download_remote_image(url: str) -> tuple[bytes, str]:
 
 
 def extract_product_image(image_bytes: bytes) -> bytes:
-    extracted = remove(image_bytes)
+    session = _get_rembg_session()
+    from rembg import remove
+    extracted = remove(image_bytes, session=session)
     if isinstance(extracted, str):
         extracted = extracted.encode("utf-8")
     image = Image.open(BytesIO(extracted)).convert("RGBA")
