@@ -32,7 +32,24 @@ class BaseConfig:
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
+        # Tests each connection with a lightweight ping before reusing it
+        # from the pool. If the connection is dead, SQLAlchemy transparently
+        # discards it and opens a fresh one instead of using a broken socket.
         "pool_pre_ping": True,
+        # Proactively recycle connections older than this many seconds.
+        # Render's network and Supabase's pooler can silently drop idle
+        # connections; recycling before that happens avoids handing out a
+        # connection that looks alive but will hang when actually used.
+        "pool_recycle": 280,
+        "connect_args": {
+            # Without this, a connection attempt that can't reach the
+            # database (e.g. right after a cold start, or a flaky pooler)
+            # hangs indefinitely. That hang is what triggered Gunicorn's
+            # 30s worker timeout and SIGKILL during the OAuth callback.
+            # This makes it fail fast with a normal, catchable exception
+            # instead of hanging the whole worker.
+            "connect_timeout": 10,
+        },
     }
 
     SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "change-me")
