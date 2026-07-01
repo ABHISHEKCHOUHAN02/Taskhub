@@ -157,7 +157,6 @@ def resolve_local_file_path(*, bucket: str, path: str) -> str | None:
         return None
     return full_path
 
-
 def ensure_storage_bucket(bucket: str) -> None:
     supabase_url, service_key = _supabase_config()
 
@@ -168,24 +167,23 @@ def ensure_storage_bucket(bucket: str) -> None:
     )
     if list_response.ok:
         buckets = list_response.json()
-        if isinstance(buckets, list) and any(item.get("id") == bucket or item.get("name") == bucket for item in buckets):
+        existing = next(
+            (item for item in buckets if isinstance(buckets, list) and (item.get("id") == bucket or item.get("name") == bucket)),
+            None,
+        )
+        if existing:
+            if existing.get("public") is not True:
+                update_response = requests.put(
+                    f"{supabase_url}/storage/v1/bucket/{bucket}",
+                    headers=_supabase_headers(service_key, content_type="application/json"),
+                    json={"public": True},
+                    timeout=30,
+                )
+                if not update_response.ok:
+                    detail = _parse_supabase_error(update_response)
+                    current_app.logger.warning("Could not update bucket %s to public: %s", bucket, detail)
             return
 
-    create_response = requests.post(
-        f"{supabase_url}/storage/v1/bucket",
-        headers=_supabase_headers(service_key, content_type="application/json"),
-        json={
-            "id": bucket,
-            "name": bucket,
-            "public": True,
-        },
-        timeout=30,
-    )
-    if create_response.ok or create_response.status_code in {409, 400}:
-        return
-
-    detail = _parse_supabase_error(create_response)
-    current_app.logger.warning("Could not create storage bucket %s: %s", bucket, detail)
 
 
 def upload_storage_object(*, bucket: str, path: str, data: bytes, content_type: str = "application/octet-stream") -> str:
